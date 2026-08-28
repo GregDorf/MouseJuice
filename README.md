@@ -18,7 +18,11 @@
 
 ## Скриншоты
 
+<img width="2557" height="1439" alt="image" src="https://github.com/user-attachments/assets/a64e4c27-b3ea-4821-956d-420b738127a0" />
 
+<img width="1475" height="831" alt="image" src="https://github.com/user-attachments/assets/7f059277-70ed-41ba-8ec3-e33a0eb4845b" />
+
+<img width="1465" height="818" alt="image" src="https://github.com/user-attachments/assets/9bedc07f-78c1-42d5-954b-bb8be94b7eaf" />
 
 ## Планируемые особенности
 
