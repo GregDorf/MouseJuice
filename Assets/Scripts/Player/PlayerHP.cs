@@ -22,19 +22,21 @@ public class PlayerHP : MonoBehaviour
     [SerializeField] private string gas_tag = "Gas";
 
     // локальные переменные для отслеживания состояний переменных выше
-    public int current_hp;
+    [HideInInspector] public int current_hp;
     private int current_ressurections;
     private float current_gas_time;
 
-    private bool is_invulnerable = false;
+    [HideInInspector] public bool is_invulnerable = false;
 
+    private PlayerSoundManager soundManager;
     private new Rigidbody2D rigidbody;
     private SpriteRenderer sprite_renderer;
+    private Shotgun shotgun;
     private Collider2D player_collider;
     private PlayerMovement movement;
     private Animator playerAnimator;
     private PlayerRespawner respawner;
-    public bool isDead = false;
+    [HideInInspector] public bool isDead = false;
 
 
     // определяем наши локальные переменные, инициализированные выше
@@ -46,7 +48,9 @@ public class PlayerHP : MonoBehaviour
         rigidbody = GetComponent<Rigidbody2D>();
         player_collider = GetComponentInChildren<Collider2D>();
         sprite_renderer = GetComponentInChildren<SpriteRenderer>();
+        shotgun = GetComponentInChildren<Shotgun>();
         movement = GetComponent<PlayerMovement>();
+        soundManager = GetComponent<PlayerSoundManager>();
 
         current_hp = hit_points;
         current_ressurections = num_of_ressurections;
@@ -84,6 +88,7 @@ public class PlayerHP : MonoBehaviour
         // ПРОИГРЫВАЕМ АНИМАЦИЮ В ЛЮБОМ СЛУЧАЕ
         if (playerAnimator != null)
         {
+            soundManager.PlayDeath();
             playerAnimator.SetTrigger("death");
         }
 
@@ -137,6 +142,8 @@ public class PlayerHP : MonoBehaviour
         }
         // Если hp <= 0, мы просто выходим (защита не запускается, 
         // спрайт остается непрозрачным, игрок не становится неуязвимым)
+
+        soundManager.PlayHit();
     }
 
     // метод временной неуязвимости после получения урона
@@ -153,6 +160,7 @@ public class PlayerHP : MonoBehaviour
         if (attacker.TryGetComponent<Collider2D>(out var enemy_collider))
         {
             Physics2D.IgnoreCollision(player_collider, enemy_collider, true);
+            shotgun.HideShotgun();
         }
 
         // отталкиваем игрока
@@ -168,6 +176,7 @@ public class PlayerHP : MonoBehaviour
         if (enemy_collider != null)
         {
             Physics2D.IgnoreCollision(player_collider, enemy_collider, false);
+            shotgun.ShowShotgun();
         }
 
         // возвращаем непрозрачность

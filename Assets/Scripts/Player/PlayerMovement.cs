@@ -13,14 +13,14 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float jump_force = 10f;
     [SerializeField] private int jump_count = 2;
 
-    [Header("ChargeSettings")]
+    [Header("Charge Settings")]
     //[SerializeField] private float charge_force = 15f;
     //[SerializeField] private float charge_uncontrol_time = 0.2f;
+    public int charge_count = 2;
     [SerializeField] private float charge_speed = 5f;
     [SerializeField] private float charge_duration = 0.2f;
     [SerializeField] private float charge_min_corner = 0.5f;
-    public int charge_count = 3;
-    [SerializeField] private float charge_cooldown = 5f;
+    [SerializeField] private float charge_cooldown = 10f;
     [SerializeField] private AnimationCurve charge_curve;
 
     [Header("Physics Layers")]
@@ -29,14 +29,20 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private LayerMask wall_layer;
     [SerializeField] private LayerMask enemyLayer;
 
+    [Header("Shotgun")]
+    [SerializeField] private GameObject shotgun;
+    private Shotgun shotgun_script;
+
     // компоненты, необходимые для работы скрипта
+    private PlayerHP hp;
+    private PlayerSoundManager soundManager;
     private PlayerInaction inactive;
     private new Rigidbody2D rigidbody;
     private SpriteRenderer sprite_renderer;
     private Animator animator;
     private TrailRenderer trail_renderer;
     private int jump_counter;
-    public int charge_counter;
+    [HideInInspector] public int charge_counter;
     private float nextChargeTime = 0f;
     private float gravity_scale;
     internal bool isWalled = false;
@@ -68,6 +74,12 @@ public class PlayerMovement : MonoBehaviour
         gravity_scale = rigidbody.gravityScale;
 
         trail_fade = trail_renderer.GetComponent<TrailFade>();
+
+        soundManager = GetComponent<PlayerSoundManager>();
+
+        shotgun_script = shotgun.GetComponent<Shotgun>();
+
+        hp = GetComponent<PlayerHP>();
 
         // задаем изначальное количество прыжков на старте
         jump_counter = 0;
@@ -141,6 +153,7 @@ public class PlayerMovement : MonoBehaviour
             {
                 rigidbody.velocity = new Vector2(speed * direction, rigidbody.velocity.y);
                 animator.SetBool("isRunning", true);
+                if (isGrounded) soundManager.PlaySteps();
                 inactive.PlayerFirstActivity();
             }
             else
@@ -159,6 +172,7 @@ public class PlayerMovement : MonoBehaviour
         {
             jump_counter--;
             animator.SetTrigger("jump");
+            soundManager.PlayJump();
             inactive.PlayerFirstActivity();
 
             rigidbody.velocity = new Vector2(rigidbody.velocity.x, 0);
@@ -216,6 +230,7 @@ public class PlayerMovement : MonoBehaviour
         {
             jump_counter = jump_count;
             animator.SetBool("isGrounded", true);
+            soundManager.PlayLanding();
             isGrounded = true;
         }
     }
@@ -238,7 +253,7 @@ public class PlayerMovement : MonoBehaviour
     // метод рывка
     private void Charge()
     {
-        if (Input.GetMouseButtonDown(0))
+        if (Input.GetMouseButtonDown(0) && !hp.is_invulnerable)
         {
             rigidbody.velocity = Vector2.zero;
             rigidbody.gravityScale = 0f;
@@ -248,13 +263,17 @@ public class PlayerMovement : MonoBehaviour
             animator.SetTrigger("dash");
             inactive.PlayerFirstActivity();
 
+            soundManager.PlayFire();
+
             trail_renderer.emitting = true;
 
             // старт корутины рывка
             StartCoroutine(ChargeCoroutine());
+            shotgun_script.StartSmoke();
         }
     }
 
+    // необходимо изменить логику, сейчас существует баг, что, если игрок долго держит 1 патрон, то потом перезарядка мгновенная
     private void ChargeCooldown()
     {
         if (charge_counter >= charge_count) return;
@@ -263,6 +282,8 @@ public class PlayerMovement : MonoBehaviour
         {
             charge_counter = charge_count;
             nextChargeTime = Time.time + charge_cooldown;
+
+            soundManager.PlayReload();
         }
     }
 
@@ -271,7 +292,8 @@ public class PlayerMovement : MonoBehaviour
     {
         Vector2 start = transform.position;
         Vector2 mouse_pos = MousePosToWorld();
-        Vector2 dir = (mouse_pos - start).normalized;
+        // поменял дирекцию, т.к теперь это отдача от бробовика (отдача назад)
+        Vector2 dir = (start - mouse_pos).normalized;
 
         float maxDistance = charge_speed;
 

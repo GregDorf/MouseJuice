@@ -46,5 +46,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   normalCursor: {fileID: 2800000, guid: 3de90a02e53eed84cb8b88cc1b8bfcfd, type: 3}
   clickCursor: {fileID: 2800000, guid: 1a7d6058a8656e24ab890402ce973eca, type: 3}
-  hotspot: {x: 0, y: 0}
+  hotspot: {x: 64, y: 64}
   cursorMode: 1
