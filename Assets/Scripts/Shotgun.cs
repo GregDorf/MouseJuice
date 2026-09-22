@@ -4,13 +4,16 @@ using UnityEngine;
 
 public class Shotgun : MonoBehaviour
 {
+    [SerializeField] private ParticleSystem smoke;
+    [SerializeField] private ParticleSystem blanks;
+
     private SpriteRenderer spriteRenderer;
-    private ParticleSystem smoke;
+    private Animator animator;
 
     void Start()
     {
         spriteRenderer = GetComponent<SpriteRenderer>();
-        smoke = GetComponentInChildren<ParticleSystem>();
+        animator = GetComponent<Animator>();
     }
 
     void Update()
@@ -33,11 +36,6 @@ public class Shotgun : MonoBehaviour
         transform.rotation = Quaternion.Euler(0, 0, angle);
     }
 
-    public void StartSmoke()
-    {
-        smoke.Play();
-    }
-
     public void HideShotgun()
     {
         spriteRenderer.enabled = false;
@@ -46,5 +44,17 @@ public class Shotgun : MonoBehaviour
     public void ShowShotgun()
     {
         spriteRenderer.enabled=true;
+    }
+
+    public void Fire()
+    {
+        animator.SetTrigger("Shot");
+        smoke.Play();
+    }
+
+    public void Reload()
+    {
+        animator.SetTrigger("Reload");
+        blanks.Play();
     }
 }

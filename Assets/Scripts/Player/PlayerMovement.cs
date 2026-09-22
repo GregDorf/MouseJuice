@@ -1,4 +1,5 @@
 using DG.Tweening;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
@@ -43,9 +44,10 @@ public class PlayerMovement : MonoBehaviour
     private TrailRenderer trail_renderer;
     private int jump_counter;
     [HideInInspector] public int charge_counter;
-    private float nextChargeTime = 0f;
+    private float chargeCooldownTimer;
     private float gravity_scale;
     internal bool isWalled = false;
+    private ObservableBool isWalledOnce = new ObservableBool(false);
     internal bool isGrounded = false;
     internal bool isWalledLeft = false;
     internal bool isWalledRight = false;
@@ -86,7 +88,9 @@ public class PlayerMovement : MonoBehaviour
         //uncontrol_time = 0;
         player_incharge = false;
 
-        charge_counter = charge_count - 1;
+        chargeCooldownTimer = charge_cooldown;
+
+        isWalledOnce.OnChangedToTrue += soundManager.PlaySlide;
     }
 
     // основной цикл программы
@@ -263,26 +267,33 @@ public class PlayerMovement : MonoBehaviour
             animator.SetTrigger("dash");
             inactive.PlayerFirstActivity();
 
+            shotgun_script.Fire();
             soundManager.PlayFire();
 
             trail_renderer.emitting = true;
 
             // старт корутины рывка
             StartCoroutine(ChargeCoroutine());
-            shotgun_script.StartSmoke();
         }
     }
 
-    // необходимо изменить логику, сейчас существует баг, что, если игрок долго держит 1 патрон, то потом перезарядка мгновенная
     private void ChargeCooldown()
     {
-        if (charge_counter >= charge_count) return;
+        // Если заряды полные, ничего не делаем
+        if (charge_counter > 0) return;
 
-        if (Time.time >= nextChargeTime)
+        // Уменьшаем таймер на время, прошедшее с прошлого кадра
+        chargeCooldownTimer -= Time.deltaTime;
+
+        // Если таймер дошел до нуля или меньше
+        if (chargeCooldownTimer <= 0f)
         {
             charge_counter = charge_count;
-            nextChargeTime = Time.time + charge_cooldown;
 
+            // Сбрасываем таймер на исходное время кулдауна
+            chargeCooldownTimer = charge_cooldown;
+
+            shotgun_script.Reload();
             soundManager.PlayReload();
         }
     }
@@ -391,6 +402,7 @@ public class PlayerMovement : MonoBehaviour
         // Общий статус для анимации и прыжка
         bool touchingWall = (isWalledLeft || isWalledRight);
         isWalled = touchingWall && !isGrounded;
+        isWalledOnce.Value = isWalled;
 
         if (isWalled)
         {
@@ -400,6 +412,33 @@ public class PlayerMovement : MonoBehaviour
         }
 
         animator.SetBool("isWalled", isWalled);
+    }
+}
+
+public class ObservableBool
+{
+    private bool _value;
+
+    // Событие, которое срабатывает ТОЛЬКО при переходе из false в true
+    public event Action OnChangedToTrue;
+
+    public bool Value
+    {
+        get => _value;
+        set
+        {
+            // Если старое значение было false, а новое true
+            if (!_value && value)
+            {
+                OnChangedToTrue?.Invoke(); // Вызываем триггер
+            }
+            _value = value;
+        }
+    }
+
+    public ObservableBool(bool initialValue = false)
+    {
+        _value = initialValue;
     }
 }
 
