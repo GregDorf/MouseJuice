@@ -12,6 +12,9 @@ public class PlayerHP : MonoBehaviour
     [SerializeField] private LayerMask enemy_layer;
     [SerializeField] private LayerMask enemy_attack_layer;
 
+    [Header("Death Settings")]
+    [SerializeField] private GameObject playerCorpse; // Префаб трупа игрока
+
     [Header("HP Settings")]
     // объявляем все необходимые на старте переменные, хп, броня, количество возрождений, время нахождения в зоне газа
     public int hit_points = 100;
@@ -85,6 +88,8 @@ public class PlayerHP : MonoBehaviour
         current_hp = 0;
         current_ressurections--;
 
+        shotgun.HideShotgun();
+
         // ПРОИГРЫВАЕМ АНИМАЦИЮ В ЛЮБОМ СЛУЧАЕ
         if (playerAnimator != null)
         {
@@ -92,9 +97,22 @@ public class PlayerHP : MonoBehaviour
             playerAnimator.SetTrigger("death");
         }
 
-        // Считаем время анимации: 25 кадров / 15 fps = 1.66 секунд
+        // Считаем время анимации: 25 кадров / 18 fps = 1.38 секунд
         float animDuration = 25f / 18f;
         yield return new WaitForSeconds(animDuration);
+
+        // --- СПАВНИМ ТРУП ИГРОКА ПО ОКОНЧАНИИ АНИМАЦИИ ---
+        if (playerCorpse != null)
+        {
+            GameObject corpse = Instantiate(playerCorpse, transform.position, transform.rotation);
+
+            // Копируем параметр flipX текущего спрайта игрока на труп
+            SpriteRenderer corpseSprite = corpse.GetComponentInChildren<SpriteRenderer>();
+            if (sprite_renderer != null && corpseSprite != null)
+            {
+                corpseSprite.flipX = sprite_renderer.flipX;
+            }
+        }
 
         if (current_ressurections < 0)
         {
@@ -103,7 +121,7 @@ public class PlayerHP : MonoBehaviour
         }
         else
         {
-            // 1. Отключаем мышь ПОСЛЕ анимации
+            // 1. Отключаем игрока ПОСЛЕ анимации
             gameObject.SetActive(false);
 
             // 2. Ищем респавнер и запускаем таймер
@@ -113,9 +131,10 @@ public class PlayerHP : MonoBehaviour
         }
     }
 
-    // Новый публичный метод, который вызовет Respawner при активации мыши
+    // Новый публичный метод, который вызовет Respawner при активации игрока
     public void ResetHP()
     {
+        shotgun.ShowShotgun();
         current_hp = hit_points; // Восстанавливаем HP только когда персонаж возвращается
         isDead = false;
     }
@@ -140,10 +159,12 @@ public class PlayerHP : MonoBehaviour
         {
             StartCoroutine(DamageProtection(attacker));
         }
-        // Если hp <= 0, мы просто выходим (защита не запускается, 
-        // спрайт остается непрозрачным, игрок не становится неуязвимым)
 
-        soundManager.PlayHit();
+        if (!isDead)
+        {
+            soundManager.PlayHit();
+            playerAnimator.SetTrigger("hurt");
+        }
     }
 
     // метод временной неуязвимости после получения урона
@@ -156,28 +177,36 @@ public class PlayerHP : MonoBehaviour
         color.a = transparency;
         sprite_renderer.color = color;
 
-        // временно отключаем столкновения с данным врагом
-        if (attacker.TryGetComponent<Collider2D>(out var enemy_collider))
+        // Временно скрываем дробовик при получении урона
+        shotgun.HideShotgun();
+
+        Collider2D enemy_collider = null;
+
+        // временно отключаем столкновения с данным врагом (если он есть)
+        if (attacker != null && attacker.TryGetComponent<Collider2D>(out enemy_collider))
         {
             Physics2D.IgnoreCollision(player_collider, enemy_collider, true);
-            shotgun.HideShotgun();
         }
 
         // отталкиваем игрока
-        Vector2 bounce_vec = (transform.position - attacker.position).normalized;
-
-        rigidbody.velocity = Vector2.zero;
-        rigidbody.AddForce(bounce_vec * knockback_force, ForceMode2D.Impulse);
+        if (attacker != null)
+        {
+            Vector2 bounce_vec = (transform.position - attacker.position).normalized;
+            rigidbody.velocity = Vector2.zero;
+            rigidbody.AddForce(bounce_vec * knockback_force, ForceMode2D.Impulse);
+        }
 
         // ждем окончания неуязвимости
         yield return new WaitForSeconds(invulnerability_time);
 
-        // возвращаем столкновения
+        // возвращаем столкновения с врагом, если он всё еще существует
         if (enemy_collider != null)
         {
             Physics2D.IgnoreCollision(player_collider, enemy_collider, false);
-            shotgun.ShowShotgun();
         }
+
+        // ВАЖНО: Всегда возвращаем видимость дробовика по окончании таймера
+        shotgun.ShowShotgun();
 
         // возвращаем непрозрачность
         color.a = 1f;
