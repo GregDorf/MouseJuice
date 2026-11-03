@@ -1,4 +1,3 @@
-using DG.Tweening;
 using System.Collections;
 using UnityEngine;
 
@@ -14,14 +13,14 @@ public class EnemyWeapon : MonoBehaviour
     [SerializeField] private float weaponXOffset = 0.5f;
 
     [Header("Burst & Cooldown Settings")]
-    [SerializeField, Tooltip("Количество выстрелов в одной серии")]
-    private int shotsPerBurst = 3;
-    [SerializeField, Tooltip("Задержка между выстрелами внутри серии")]
-    private float timeBetweenShots = 0.1f;
-    [SerializeField, Tooltip("Кулдаун после завершения серии выстрелов")]
-    private float cooldownTime = 1.5f;
+    [SerializeField, Min(1)] private int shotsPerBurst = 3;
+    [SerializeField, Min(0f)] private float timeBetweenShots = 0.1f;
+    [SerializeField, Min(0f)] private float cooldownTime = 1.5f;
 
-    [Header("Halo")]
+    [Header("Combat Cycle")]
+    [SerializeField, Min(1)] private int burstsBeforeRetreat = 3;
+
+    [Header("Halo / Light")]
     [SerializeField] private Halo halo;
     [SerializeField] private Transform transform_halo;
 
@@ -29,68 +28,102 @@ public class EnemyWeapon : MonoBehaviour
     private SpriteRenderer enemySprite;
     private SpriteRenderer weaponSprite;
     private EnemySound sound;
-    private bool lastFacingLeft = false;
 
-    private bool isShooting = false;
-    private bool isCoolingDown = false;
+    private bool lastFacingLeft;
+    private bool isShooting;
+    private bool isCoolingDown;
 
-    // Главное свойство: оружие может стрелять, только если оно не занято серией и не на кулдауне
+    private int completedBursts;
+
     public bool CanShoot => !isShooting && !isCoolingDown;
+    public bool IsFiring => isShooting;
+    public bool IsCoolingDown => isCoolingDown;
 
-    void Start()
+    public int BurstsBeforeRetreat =>
+        Mathf.Max(1, burstsBeforeRetreat);
+
+    public int CompletedBursts => completedBursts;
+
+    public bool BurstsCompleted =>
+        completedBursts >= BurstsBeforeRetreat;
+
+    private void Start()
     {
         enemy = GetComponentInParent<Enemy>();
         sound = GetComponentInParent<EnemySound>();
+
         if (enemy != null)
-        {
             enemySprite = enemy.GetComponentInChildren<SpriteRenderer>();
-        }
 
         weaponSprite = GetComponent<SpriteRenderer>();
 
         if (firePoint == null)
-        {
             firePoint = transform;
-        }
 
-        // Устанавливаем начальное положение Halo при старте
-        UpdateHaloPosition(enemySprite != null && enemySprite.flipX);
+        bool facingLeft = enemySprite != null && enemySprite.flipX;
+
+        lastFacingLeft = facingLeft;
+        ApplyFacingDirection(facingLeft);
     }
 
-    void Update()
+    private void Update()
     {
-        if (enemy == null || enemySprite == null) return;
+        if (enemySprite == null || isShooting)
+            return;
 
-        bool isFacingLeft = enemySprite.flipX;
+        bool facingLeft = enemySprite.flipX;
 
-        // Обновляем позицию и поворот оружия при смене направления
-        if (isFacingLeft != lastFacingLeft)
+        if (facingLeft != lastFacingLeft)
         {
-            lastFacingLeft = isFacingLeft;
-            float currentXOffset = isFacingLeft ? -Mathf.Abs(weaponXOffset) : Mathf.Abs(weaponXOffset);
-            transform.localPosition = new Vector3(currentXOffset, transform.localPosition.y, transform.localPosition.z);
-
-            if (weaponSprite != null)
-            {
-                weaponSprite.flipX = isFacingLeft;
-            }
-
-            UpdateHaloPosition(isFacingLeft);
+            lastFacingLeft = facingLeft;
+            ApplyFacingDirection(facingLeft);
         }
     }
 
-    private void UpdateHaloPosition(bool isFacingLeft)
+    private void ApplyFacingDirection(bool facingLeft)
     {
-        if (transform_halo == null) return;
+        float xOffset = facingLeft
+            ? -Mathf.Abs(weaponXOffset)
+            : Mathf.Abs(weaponXOffset);
 
-        float haloX = isFacingLeft ? -2.5f : 2.5f;
-        transform_halo.localPosition = new Vector3(haloX, transform_halo.localPosition.y, transform_halo.localPosition.z);
+        transform.localPosition = new Vector3(
+            xOffset,
+            transform.localPosition.y,
+            transform.localPosition.z);
+
+        if (weaponSprite != null)
+            weaponSprite.flipX = facingLeft;
+
+        UpdateHaloPosition(facingLeft);
     }
 
-    // Метод запуска атаки. Теперь запускает серию из 3 выстрелов.
+    private void UpdateHaloPosition(bool facingLeft)
+    {
+        if (transform_halo == null)
+            return;
+
+        float haloOffset = 2.5f;
+        float haloX = facingLeft ? -haloOffset : haloOffset;
+
+        transform_halo.localPosition = new Vector3(
+            haloX,
+            transform_halo.localPosition.y,
+            transform_halo.localPosition.z);
+
+        SpriteRenderer haloSprite =
+            transform_halo.GetComponent<SpriteRenderer>();
+
+        if (haloSprite != null)
+            haloSprite.flipX = facingLeft;
+    }
+
     public void Fire()
     {
-        if (!CanShoot) return;
+        if (!CanShoot || BurstsCompleted)
+            return;
+
+        bool facingLeft = enemySprite != null && enemySprite.flipX;
+        UpdateHaloPosition(facingLeft);
 
         StartCoroutine(ShootBurstRoutine());
     }
@@ -99,53 +132,73 @@ public class EnemyWeapon : MonoBehaviour
     {
         isShooting = true;
 
-        for (int i = 0; i < shotsPerBurst; i++)
+        int count = Mathf.Max(1, shotsPerBurst);
+
+        for (int i = 0; i < count; i++)
         {
+            bool facingLeft = enemySprite != null && enemySprite.flipX;
+            UpdateHaloPosition(facingLeft);
+
             PerformSingleShot();
 
-            // Если это не последний выстрел в серии, ждем паузу
-            if (i < shotsPerBurst - 1)
-            {
+            if (i < count - 1)
                 yield return new WaitForSeconds(timeBetweenShots);
-            }
         }
 
         isShooting = false;
+        completedBursts++;
 
-        // После окончания всей серии включаем кулдаун
-        StartCoroutine(CooldownRoutine());
+        if (!BurstsCompleted)
+            StartCoroutine(CooldownRoutine());
     }
 
     private IEnumerator CooldownRoutine()
     {
         isCoolingDown = true;
+
         yield return new WaitForSeconds(cooldownTime);
+
         isCoolingDown = false;
     }
 
     private void PerformSingleShot()
     {
-        if (bulletPrefab == null || firePoint == null) return;
+        if (bulletPrefab == null || firePoint == null)
+            return;
 
-        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
+        GameObject bullet = Instantiate(
+            bulletPrefab,
+            firePoint.position,
+            Quaternion.identity);
 
-        bool isFacingLeft = enemySprite != null && enemySprite.flipX;
-        Vector2 shootDirection = isFacingLeft ? Vector2.left : Vector2.right;
+        bool facingLeft = enemySprite != null && enemySprite.flipX;
 
-        Rigidbody2D rbBullet = bullet.GetComponent<Rigidbody2D>();
-        if (rbBullet != null)
-        {
-            rbBullet.velocity = shootDirection * bulletSpeed;
-        }
+        Vector2 shootDirection = facingLeft
+            ? Vector2.left
+            : Vector2.right;
+
+        Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+
+        if (bulletRb != null)
+            bulletRb.velocity = shootDirection * bulletSpeed;
 
         Bullet bulletScript = bullet.GetComponent<Bullet>();
-        if (bulletScript != null)
-        {
-            bulletScript.SetDamage(bulletDamage);
-        }
 
-        enemy.AnimationSetTrig("Fire", 0);
-        sound.PlayShot();
-        if (halo != null) halo.TriggerFlash();
+        if (bulletScript != null)
+            bulletScript.SetDamage(bulletDamage);
+
+        if (enemy != null)
+            enemy.AnimationSetTrig("Fire", 0f);
+
+        if (sound != null)
+            sound.PlayShot();
+
+        if (halo != null)
+            halo.TriggerFlash();
+    }
+
+    public void ResetCombatCycle()
+    {
+        completedBursts = 0;
     }
 }

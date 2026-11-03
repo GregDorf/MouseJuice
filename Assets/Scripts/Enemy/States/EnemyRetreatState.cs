@@ -3,31 +3,34 @@ using UnityEngine;
 public class EnemyRetreatState : IEnemyState
 {
     private readonly Enemy enemy;
-    private Vector3 retreatPoint;
+
     private float retreatTimeout;
 
-    public EnemyRetreatState(Enemy enemy) => this.enemy = enemy;
+    private const float MaxRetreatDuration = 2f;
+
+    public EnemyRetreatState(Enemy enemy)
+    {
+        this.enemy = enemy;
+    }
 
     public void Enter()
     {
-        retreatPoint = enemy.movement.FindRetreatPoint();
-        retreatTimeout = 3f;
-        enemy.movement.MoveTo(retreatPoint);
+        retreatTimeout = MaxRetreatDuration;
     }
 
     public void Update()
     {
         retreatTimeout -= Time.deltaTime;
 
-        if (enemy.movement.HasReachedDestination || retreatTimeout <= 0f)
+        if (enemy.movement.HasReachedDestination ||
+            retreatTimeout <= 0f)
         {
-            // Достигли точки отступления — передаем управление в Chase (он сам решит стрелять или преследовать)
+            if (enemy.weapon != null)
+                enemy.weapon.ResetCombatCycle();
+
             enemy.ChangeState(enemy.ChaseState);
         }
     }
 
-    public void Exit()
-    {
-        enemy.movement.Stop();
-    }
+    public void Exit() { }
 }

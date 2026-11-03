@@ -4,11 +4,13 @@ public class EnemyReturnState : IEnemyState
 {
     private readonly Enemy enemy;
 
-    public EnemyReturnState(Enemy enemy) => this.enemy = enemy;
+    public EnemyReturnState(Enemy enemy)
+    {
+        this.enemy = enemy;
+    }
 
     public void Enter()
     {
-        enemy.movement.MoveTo(enemy.StartPosition);
     }
 
     public void Update()
@@ -25,8 +27,5 @@ public class EnemyReturnState : IEnemyState
         }
     }
 
-    public void Exit()
-    {
-        enemy.movement.Stop();
-    }
+    public void Exit() { }
 }

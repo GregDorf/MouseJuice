@@ -1,3 +1,5 @@
+using UnityEngine;
+
 public class EnemyShootState : IEnemyState
 {
     private readonly Enemy enemy;
@@ -6,46 +8,57 @@ public class EnemyShootState : IEnemyState
     public EnemyShootState(Enemy enemy)
     {
         this.enemy = enemy;
-        this.weapon = enemy.weapon;
+        weapon = enemy.weapon;
     }
 
     public void Enter()
     {
-        enemy.movement.Stop();
-        enemy.movement.FaceTarget(enemy.PlayerPosition);
-
-        if (weapon != null)
-        {
-            weapon.Fire();
-        }
+        // Позиционированием и поворотом занимается менеджер.
     }
 
     public void Update()
     {
-        // Обязательно держим направление лицом к игроку во время стрельбы и кулдауна
-        enemy.movement.FaceTarget(enemy.PlayerPosition);
+        if (!enemy.PlayerDetected)
+        {
+            enemy.ChangeState(enemy.ChaseState);
+            return;
+        }
+
+        EnemyPositionManager manager =
+            EnemyPositionManager.Instance;
+
+        if (manager != null &&
+            !manager.CanEnterShoot(enemy))
+        {
+            enemy.ChangeState(enemy.ChaseState);
+            return;
+        }
 
         float distance = enemy.DistanceToPlayer;
 
-        // 1. Если игрок подошел слишком близко — мгновенно уходим в отступление
         if (distance <= enemy.RetreatDistance)
         {
             enemy.ChangeState(enemy.RetreatState);
             return;
         }
 
-        // 2. Если игрок убежал дальше дистанции атаки или потерян — переходим в погоню
-        if (distance > enemy.AttackDistance || !enemy.PlayerDetected)
+        if (distance > enemy.AttackDistance)
         {
             enemy.ChangeState(enemy.ChaseState);
             return;
         }
 
-        // 3. Если серия выстрелов завершена и прошел кулдаун — запускаем новую серию
-        if (weapon != null && weapon.CanShoot)
+        if (weapon == null)
+            return;
+
+        if (weapon.BurstsCompleted)
         {
-            weapon.Fire();
+            enemy.ChangeState(enemy.RetreatState);
+            return;
         }
+
+        if (weapon.CanShoot)
+            weapon.Fire();
     }
 
     public void Exit() { }

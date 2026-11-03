@@ -149,8 +149,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   aggroDistance: 10
-  attackDistance: 5
+  attackDistance: 7
   retreatDistance: 3
+  attackDistRandomRange: 1.5
+  retreatDistRandomRange: 1
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 136
@@ -159,9 +161,9 @@ MonoBehaviour:
   weapon: {fileID: 8490442560550517156}
   startPosition: {x: 0, y: 0, z: 0}
   playerPosition: {x: 0, y: 0, z: 0}
-  animator: {fileID: 8906766235241132491}
-  playerDetected: 0
   distanceToPlayer: 0
+  playerDetected: 0
+  animator: {fileID: 8906766235241132491}
 --- !u!114 &3841487326304423780
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -202,10 +204,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 190b44c54ad853541b24be7b48062b09, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveSpeed: 4
-  waypointDistance: 0.15
-  retreatCandidates: 16
-  retreatSearchRadius: 2
+  baseMoveSpeed: 3
+  speedRandomizationRange: 1.5
+  waypointReachDistance: 0.5
+  obstacleLayer:
+    serializedVersion: 2
+    m_Bits: 152
+  wallCheckDistance: 0.6
+  runAnimationStartSpeed: 0.15
+  runAnimationStopSpeed: 0.07
+  destinationUpdateThreshold: 0.5
+  stuckTimeout: 0.7
   spriteRenderer: {fileID: 911976188646648514}
 --- !u!95 &8906766235241132491
 Animator:
@@ -246,6 +255,7 @@ MonoBehaviour:
   push: {fileID: 8300000, guid: e9a77db455c7ebb439533f417ecaea42, type: 3}
   death: {fileID: 8300000, guid: fe8a3bae1ff43be42b84b8483186c45c, type: 3}
   source: {fileID: 1777923180123459214}
+  hitCooldown: 0.15
 --- !u!82 &1777923180123459214
 AudioSource:
   m_ObjectHideFlags: 0
@@ -395,6 +405,7 @@ MonoBehaviour:
   shotsPerBurst: 3
   timeBetweenShots: 0.1
   cooldownTime: 1.5
+  burstsBeforeRetreat: 3
   halo: {fileID: 2928587836870673285}
   transform_halo: {fileID: 7401884502249209098}
 --- !u!1 &5426555573129946513

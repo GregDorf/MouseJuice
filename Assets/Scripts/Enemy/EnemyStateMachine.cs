@@ -1,6 +1,7 @@
 public class EnemyStateMachine
 {
     private IEnemyState currentState;
+    public IEnemyState CurrentState => currentState;
 
     public void Initialize(IEnemyState startingState)
     {

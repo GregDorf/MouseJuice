@@ -1,15 +1,23 @@
-using Unity.VisualScripting;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Enemy : MonoBehaviour
 {
+    public static List<Enemy> AllEnemies { get; } = new List<Enemy>();
+
     [Header("Distances & Detection")]
     [SerializeField] private float aggroDistance = 10f;
     [SerializeField] private float attackDistance = 7f;
     [SerializeField] private float retreatDistance = 4f;
+
+    [Header("Distance Randomization Ranges")]
+    [SerializeField] private float attackDistRandomRange = 1.5f;
+    [SerializeField] private float retreatDistRandomRange = 1.0f;
+
+    [Header("Layers & Optimization")]
     [SerializeField] private LayerMask obstacleLayer;
-    [SerializeField, Tooltip("Интервал проверки видимости через стены для оптимизации FPS")]
-    private float detectionInterval = 0.1f;
+    [SerializeField] private float detectionInterval = 0.1f;
 
     [Header("Scripts")]
     public EnemyMovement movement;
@@ -18,13 +26,14 @@ public class Enemy : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private Vector3 startPosition;
     [SerializeField] private Vector3 playerPosition;
+    [SerializeField] private float distanceToPlayer;
+    [SerializeField] private bool playerDetected;
 
     [Header("Animator")]
     [SerializeField] private Animator animator;
 
-    [Header("Action Pause")]
-    private bool isPaused = false; // Флаг паузы (враг замер во время анимации)
-    public bool IsPaused => isPaused;
+    private bool isPaused;
+    private int activePauseCount;
 
     private Transform player;
     private EnemyStateMachine stateMachine;
@@ -35,25 +44,68 @@ public class Enemy : MonoBehaviour
     private EnemyRetreatState retreatState;
     private EnemyReturnState returnState;
 
-    [SerializeField] private bool playerDetected = false;
-    [SerializeField] private float distanceToPlayer;
+    private float actualAttackDistance;
+    private float actualRetreatDistance;
     private float detectionTimer;
+
+    private Vector3 lastKnownPlayerPosition;
+
+    public bool IsPaused => isPaused;
+    public bool PlayerDetected => playerDetected;
+
+    public Vector3 PlayerPosition => playerPosition;
+    public Vector3 LastKnownPlayerPosition => lastKnownPlayerPosition;
+
+    public float DistanceToPlayer => distanceToPlayer;
+    public Vector3 StartPosition => startPosition;
+
+    public float AttackDistance => actualAttackDistance;
+    public float RetreatDistance => actualRetreatDistance;
+
+    public IEnemyState CurrentState => stateMachine?.CurrentState;
+
+    public EnemyIdleState IdleState => idleState;
+    public EnemyChaseState ChaseState => chaseState;
+    public EnemyShootState ShootState => shootState;
+    public EnemyRetreatState RetreatState => retreatState;
+    public EnemyReturnState ReturnState => returnState;
 
     private void Awake()
     {
-        movement = GetComponent<EnemyMovement>();
-        weapon = GetComponentInChildren<EnemyWeapon>();
+        if (!AllEnemies.Contains(this))
+            AllEnemies.Add(this);
+
+        movement = movement != null
+            ? movement
+            : GetComponent<EnemyMovement>();
+
+        weapon = weapon != null
+            ? weapon
+            : GetComponentInChildren<EnemyWeapon>();
+
         startPosition = transform.position;
 
-        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-        if (playerObject != null)
-        {
-            player = playerObject.transform;
-        }
-        else
-        {
-            Debug.LogError($"{name}: Player with tag 'Player' was not found.");
-        }
+        float attackOffset = Random.Range(
+            -attackDistRandomRange,
+            attackDistRandomRange);
+
+        actualAttackDistance = Mathf.Max(
+            2f,
+            attackDistance + attackOffset);
+
+        float retreatOffset = Random.Range(
+            -retreatDistRandomRange,
+            retreatDistRandomRange);
+
+        actualRetreatDistance = Mathf.Clamp(
+            retreatDistance + retreatOffset,
+            1f,
+            Mathf.Max(1.1f, actualAttackDistance - 1f));
+
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>();
+
+        FindPlayer();
 
         stateMachine = new EnemyStateMachine();
 
@@ -64,6 +116,11 @@ public class Enemy : MonoBehaviour
         returnState = new EnemyReturnState(this);
     }
 
+    private void OnDestroy()
+    {
+        AllEnemies.Remove(this);
+    }
+
     private void Start()
     {
         stateMachine.Initialize(idleState);
@@ -71,25 +128,48 @@ public class Enemy : MonoBehaviour
 
     private void Update()
     {
-        // Если враг находится на паузе после анимации, пропускаем всю логику движения и состояний
-        if (isPaused) return;
+        if (isPaused)
+            return;
+
+        if (player == null)
+            FindPlayer();
 
         if (player != null)
         {
-            // Позиция и дистанция обновляются каждый кадр для максимальной отзывчивости движения
             playerPosition = player.position;
-            distanceToPlayer = Vector3.Distance(transform.position, playerPosition);
+
+            distanceToPlayer = Vector2.Distance(
+                transform.position,
+                playerPosition);
+        }
+        else
+        {
+            distanceToPlayer = float.PositiveInfinity;
+            playerDetected = false;
         }
 
-        // Оптимизация: тяжелый Raycast (проверка преград) выполняется по таймеру
         detectionTimer -= Time.deltaTime;
+
         if (detectionTimer <= 0f)
         {
-            detectionTimer = detectionInterval;
+            detectionTimer = Mathf.Max(0.02f, detectionInterval);
             UpdateLineOfSight();
         }
 
-        stateMachine.Update();
+        if (playerDetected)
+            lastKnownPlayerPosition = playerPosition;
+
+        stateMachine?.Update();
+    }
+
+    private void FindPlayer()
+    {
+        GameObject playerObject =
+            GameObject.FindGameObjectWithTag("Player");
+
+        player = playerObject != null
+            ? playerObject.transform
+            : null;
     }
 
     private void UpdateLineOfSight()
@@ -100,70 +180,90 @@ public class Enemy : MonoBehaviour
             return;
         }
 
-        float currentMaxDetection = playerDetected ? aggroDistance * 1.5f : aggroDistance;
+        float maxDetectionDistance = playerDetected
+            ? aggroDistance * 1.5f
+            : aggroDistance;
 
-        if (distanceToPlayer > currentMaxDetection)
+        if (distanceToPlayer > maxDetectionDistance)
         {
             playerDetected = false;
             return;
         }
 
-        Vector2 directionToPlayer = (Vector2)(playerPosition - transform.position);
-        RaycastHit2D hit = Physics2D.Raycast(transform.position, directionToPlayer.normalized, distanceToPlayer, obstacleLayer);
+        Vector2 origin = transform.position;
+        Vector2 target = player.position;
 
-        playerDetected = (hit.collider == null);
+        Vector2 direction = target - origin;
+        float distance = direction.magnitude;
+
+        if (distance <= 0.001f)
+        {
+            playerDetected = true;
+            return;
+        }
+
+        RaycastHit2D hit = Physics2D.Raycast(
+            origin,
+            direction / distance,
+            distance,
+            obstacleLayer);
+
+        playerDetected =
+            hit.collider == null ||
+            hit.transform == player ||
+            hit.transform.IsChildOf(player);
     }
 
     public void ChangeState(IEnemyState newState)
     {
-        stateMachine.ChangeState(newState);
+        stateMachine?.ChangeState(newState);
     }
 
-    // Метод для триггер-анимаций с паузой и колбэком по завершении
-    public void AnimationSetTrig(string triggerName, float delayTime, System.Action onComplete = null)
+    public void AnimationSetTrig(
+        string triggerName,
+        float delayTime,
+        System.Action onComplete = null)
     {
         if (animator != null)
-        {
             animator.SetTrigger(triggerName);
+
+        if (delayTime <= 0f)
+        {
+            onComplete?.Invoke();
+            return;
         }
-        StartCoroutine(ActionDelayRoutine(delayTime, onComplete));
+
+        StartCoroutine(
+            ActionDelayRoutine(delayTime, onComplete));
     }
 
-    // Корутина для создания паузы
-    private System.Collections.IEnumerator ActionDelayRoutine(float delay, System.Action onComplete)
+    private IEnumerator ActionDelayRoutine(
+        float delay,
+        System.Action onComplete)
     {
+        activePauseCount++;
         isPaused = true;
 
-        if (movement != null) movement.Stop();
+        if (movement != null)
+            movement.Stop();
 
         yield return new WaitForSeconds(delay);
 
-        isPaused = false;
+        activePauseCount = Mathf.Max(
+            0,
+            activePauseCount - 1);
 
-        // Вызываем действие (например, смену состояния) после окончания паузы
+        isPaused = activePauseCount > 0;
+
         onComplete?.Invoke();
     }
 
-    // Простой метод для постоянных состояний (бег, ходьба) без корутин и пауз
     public void AnimationSetBool(string boolName, bool value)
     {
-        if (animator != null && animator.GetBool(boolName) != value)
+        if (animator != null &&
+            animator.GetBool(boolName) != value)
         {
             animator.SetBool(boolName, value);
         }
     }
-
-    // Геттеры
-    public Vector3 StartPosition => startPosition;
-    public float AttackDistance => attackDistance;
-    public float RetreatDistance => retreatDistance;
-    public EnemyIdleState IdleState => idleState;
-    public EnemyChaseState ChaseState => chaseState;
-    public EnemyShootState ShootState => shootState;
-    public EnemyRetreatState RetreatState => retreatState;
-    public EnemyReturnState ReturnState => returnState;
-
-    public bool PlayerDetected => playerDetected;
-    public Vector3 PlayerPosition => playerPosition;
-    public float DistanceToPlayer => distanceToPlayer;
 }

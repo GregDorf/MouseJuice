@@ -38,6 +38,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("Shotgun")]
     [SerializeField] private GameObject shotgun;
     private Shotgun shotgun_script;
+    private bool movementStopped;
 
     // компоненты, необходимые для работы скрипта
     private PlayerHP hp;
@@ -101,6 +102,11 @@ public class PlayerMovement : MonoBehaviour
     // основной цикл программы
     private void Update()
     {
+        if (hp.isDead)
+        {
+            return;
+        }
+
         // ИСПРАВЛЕНИЕ: Проверяем землю через OverlapCircle в самом начале кадра.
         // Это исключает баги с единым Tilemap, когда игрок съезжает со стены вплотную к полу.
         bool wasGrounded = isGrounded;
@@ -471,6 +477,47 @@ public class PlayerMovement : MonoBehaviour
     {
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere((Vector2)transform.position + groundCheckOffset, groundCheckRadius);
+    }
+
+    public void StopMovementOnDeath()
+    {
+        if (movementStopped) return;
+
+        movementStopped = true;
+
+        // Останавливаем рывок и остальные корутины движения
+        StopAllCoroutines();
+
+        player_incharge = false;
+        isWallJumping = false;
+
+        // Останавливаем горизонтальное движение,
+        // но сохраняем вертикальную скорость
+        rigidbody.velocity = new Vector2(0f, rigidbody.velocity.y);
+
+        // Возвращаем обычную гравитацию
+        rigidbody.gravityScale = gravity_scale;
+
+        // Отключаем след рывка
+        trail_renderer.emitting = false;
+
+        // Сбрасываем параметры движения аниматора
+        animator.SetBool("isRunning", false);
+        animator.SetBool("isWalled", false);
+        animator.SetBool("dashEnd", true);
+
+        isWalled = false;
+        isGrounded = false;
+    }
+
+    public void ResetMovement()
+    {
+        movementStopped = false;
+        player_incharge = false;
+        isWallJumping = false;
+
+        rigidbody.velocity = Vector2.zero;
+        rigidbody.gravityScale = gravity_scale;
     }
 }
 

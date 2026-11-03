@@ -1,5 +1,7 @@
 using UnityEngine;
 
+// Диагностический компонент триггера.
+// Сам по себе не переключает PlayerDetected: видимость проверяет Enemy через дистанцию и Raycast.
 public class EnemyDetection : MonoBehaviour
 {
     private Enemy enemy;
@@ -14,9 +16,8 @@ public class EnemyDetection : MonoBehaviour
         if (!other.CompareTag("Player"))
             return;
 
-        //enemy.SetPlayerDetected(true);
-
-        Debug.Log($"{enemy.name}: Player detected.");
+        if (enemy != null)
+            Debug.Log($"{enemy.name}: Player entered detection trigger.", enemy);
     }
 
     private void OnTriggerExit2D(Collider2D other)
@@ -24,8 +25,7 @@ public class EnemyDetection : MonoBehaviour
         if (!other.CompareTag("Player"))
             return;
 
-        //enemy.SetPlayerDetected(false);
-
-        Debug.Log($"{enemy.name}: Player lost.");
+        if (enemy != null)
+            Debug.Log($"{enemy.name}: Player exited detection trigger.", enemy);
     }
 }

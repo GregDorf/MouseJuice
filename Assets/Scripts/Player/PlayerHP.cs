@@ -88,54 +88,64 @@ public class PlayerHP : MonoBehaviour
         current_hp = 0;
         current_ressurections--;
 
+        // Немедленно останавливаем движение
+        movement.StopMovementOnDeath();
+
+        // Прекращаем защиту после получения урона
+        is_invulnerable = false;
+
+        // Скрываем дробовик
         shotgun.HideShotgun();
 
-        // ПРОИГРЫВАЕМ АНИМАЦИЮ В ЛЮБОМ СЛУЧАЕ
+        // Проигрываем анимацию смерти
         if (playerAnimator != null)
         {
             soundManager.PlayDeath();
             playerAnimator.SetTrigger("death");
         }
 
-        // Считаем время анимации: 25 кадров / 18 fps = 1.38 секунд
+        // Длительность анимации: 25 кадров / 18 FPS
         float animDuration = 25f / 18f;
+
         yield return new WaitForSeconds(animDuration);
 
-        // --- СПАВНИМ ТРУП ИГРОКА ПО ОКОНЧАНИИ АНИМАЦИИ ---
+        // Создаём труп
         if (playerCorpse != null)
         {
-            GameObject corpse = Instantiate(playerCorpse, transform.position, transform.rotation);
+            GameObject corpse = Instantiate(
+                playerCorpse,
+                transform.position,
+                transform.rotation
+            );
 
-            // Копируем параметр flipX текущего спрайта игрока на труп
-            SpriteRenderer corpseSprite = corpse.GetComponentInChildren<SpriteRenderer>();
+            SpriteRenderer corpseSprite =
+                corpse.GetComponentInChildren<SpriteRenderer>();
+
             if (sprite_renderer != null && corpseSprite != null)
             {
                 corpseSprite.flipX = sprite_renderer.flipX;
             }
         }
 
-        if (current_ressurections < 0)
-        {
-            // Окончательная смерть
-            gameObject.SetActive(false);
-        }
-        else
-        {
-            // 1. Отключаем игрока ПОСЛЕ анимации
-            gameObject.SetActive(false);
+        // Окончательная смерть или респавн
+        gameObject.SetActive(false);
 
-            // 2. Ищем респавнер и запускаем таймер
-            var respawner = GameObject.FindWithTag("Respawner")?.GetComponent<PlayerRespawner>();
+        if (current_ressurections >= 0)
+        {
             if (respawner != null)
+            {
                 respawner.StartRespawnSequence();
+            }
         }
     }
 
     // Новый публичный метод, который вызовет Respawner при активации игрока
     public void ResetHP()
     {
+        movement.ResetMovement();
+
         shotgun.ShowShotgun();
-        current_hp = hit_points; // Восстанавливаем HP только когда персонаж возвращается
+        current_hp = hit_points;
         isDead = false;
     }
 
@@ -160,7 +170,7 @@ public class PlayerHP : MonoBehaviour
             StartCoroutine(DamageProtection(attacker));
         }
 
-        if (!isDead)
+        if (!isDead && current_hp > 0)
         {
             soundManager.PlayHit();
             playerAnimator.SetTrigger("hurt");
@@ -177,7 +187,7 @@ public class PlayerHP : MonoBehaviour
         color.a = transparency;
         sprite_renderer.color = color;
 
-        // Временно скрываем дробовик при получении урона
+        // Временно скрываем дробовик при получении урона (убран, теперь игрок может пользоваться шотганом после получения урона)
         shotgun.HideShotgun();
 
         Collider2D enemy_collider = null;

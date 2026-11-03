@@ -4,284 +4,413 @@ using Pathfinding;
 public class EnemyMovement : MonoBehaviour
 {
     [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 3f;
-    [SerializeField] private float waypointDistance = 0.3f;
+    [SerializeField] private float baseMoveSpeed = 3f;
+    [SerializeField] private float speedRandomizationRange = 1f;
+    [SerializeField] private float waypointReachDistance = 0.3f;
 
-    [Header("Retreat Settings")]
-    [SerializeField] private int retreatCandidates = 16;
-    [SerializeField] private float retreatSearchRadius = 2f;
+    [Header("Obstacle & Wall Check")]
+    [SerializeField] private LayerMask obstacleLayer;
+    [SerializeField] private float wallCheckDistance = 0.6f;
 
-    [Header("Separation Settings")]
-    [SerializeField] private float separationRadius = 0.8f; // Радиус, на котором враги начинают отталкиваться
-    [SerializeField] private float separationWeight = 1.2f; // Сила отталкивания
+    [Header("Animation Settings")]
+    [SerializeField] private float runAnimationStartSpeed = 0.15f;
+    [SerializeField] private float runAnimationStopSpeed = 0.07f;
+
+    [Header("Path Settings")]
+    [SerializeField] private float destinationUpdateThreshold = 0.5f;
+    [SerializeField] private float stuckTimeout = 0.7f;
 
     private Seeker seeker;
     private Rigidbody2D rb;
     private Enemy enemy;
     private EnemySound sound;
+
     [SerializeField] private SpriteRenderer spriteRenderer;
 
     private Path currentPath;
     private int currentWaypoint;
+
     private bool pathPending;
-    private Vector3 lastRequestedDestination;
     private bool hasDestination;
 
-    // Переменные для отслеживания застревания по прогрессу пути (не по физическим толчкам)
-    private float lastDistanceToWaypoint = float.MaxValue;
-    private float stuckTimer = 0f;
-    private const float StuckCheckThreshold = 0.5f; // Время в секундах, если не приближаемся к цели — считаем, что застряли
+    private Vector3 currentDestination;
+    private Vector3 requestedDestination;
+
+    private int pathRequestVersion;
+
+    private float actualSpeed;
+    private float stuckTimer;
+
+    private Vector3 lastPosition;
+
+    private bool isWalkingSoundPlaying;
+    private bool isRunAnimationPlaying;
 
     public bool HasReachedDestination { get; private set; } = true;
 
+    public float HorizontalVelocity =>
+        rb != null ? rb.velocity.x : 0f;
+
     private void Awake()
     {
-        sound = GetComponent<EnemySound>();
         enemy = GetComponent<Enemy>();
+
         seeker = GetComponent<Seeker>();
         rb = GetComponent<Rigidbody2D>();
+
+        sound = GetComponentInParent<EnemySound>();
+
+        if (sound == null)
+            sound = GetComponent<EnemySound>();
+
         if (spriteRenderer == null)
             spriteRenderer = GetComponentInChildren<SpriteRenderer>();
 
-        // Автоматически отключаем столкновения между объектами слоя "Enemy"
+        if (rb != null)
+            rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+
         int enemyLayer = gameObject.layer;
-        Physics2D.IgnoreLayerCollision(enemyLayer, enemyLayer, true);
+
+        Physics2D.IgnoreLayerCollision(
+            enemyLayer,
+            enemyLayer,
+            true);
+
+        float randomOffset = Random.Range(
+            -speedRandomizationRange,
+            speedRandomizationRange);
+
+        actualSpeed = Mathf.Max(
+            1f,
+            baseMoveSpeed + randomOffset);
+
+        lastPosition = transform.position;
     }
 
     private void Update()
     {
-        if (hasDestination && currentPath != null && !currentPath.error)
+        if (!hasDestination ||
+            HasReachedDestination ||
+            currentPath == null ||
+            currentPath.error)
         {
-            ExecuteMovement();
+            StopMovementSound();
+            return;
+        }
+
+        ExecuteMovement();
+        UpdateRunAnimation();
+
+        if (!HasReachedDestination &&
+            !isWalkingSoundPlaying &&
+            sound != null &&
+            IsMovingHorizontally())
+        {
+            isWalkingSoundPlaying = true;
             sound.PlayWalk();
         }
-        else
-        {
-            stuckTimer = 0f;
-            if (enemy != null) enemy.AnimationSetBool("isRun", false);
-            sound.StopWalk();
-        }
+    }
+
+    private void FixedUpdate()
+    {
+        UpdateRunAnimation();
     }
 
     public void MoveTo(Vector3 destination)
     {
-        if (seeker == null || AstarPath.active == null) return;
+        if (seeker == null || AstarPath.active == null)
+            return;
 
-        if (hasDestination && Vector3.SqrMagnitude(lastRequestedDestination - destination) < 0.25f)
+        float thresholdSqr =
+            destinationUpdateThreshold *
+            destinationUpdateThreshold;
+
+        if (hasDestination &&
+            (currentDestination - destination).sqrMagnitude <
+            thresholdSqr)
         {
             return;
         }
 
-        lastRequestedDestination = destination;
+        currentDestination = destination;
+        requestedDestination = destination;
+
         hasDestination = true;
         HasReachedDestination = false;
-        stuckTimer = 0f;
-        lastDistanceToWaypoint = float.MaxValue;
 
-        if (pathPending) return;
+        stuckTimer = 0f;
+
+        if (!pathPending)
+            RequestPath();
+    }
+
+    private void RequestPath()
+    {
+        if (seeker == null ||
+            AstarPath.active == null ||
+            !hasDestination)
+        {
+            return;
+        }
 
         pathPending = true;
-        seeker.StartPath(transform.position, destination, OnPathComplete);
+
+        int requestVersion = pathRequestVersion;
+        Vector3 destinationSnapshot = requestedDestination;
+
+        seeker.StartPath(
+            transform.position,
+            destinationSnapshot,
+            path => OnPathComplete(
+                path,
+                destinationSnapshot,
+                requestVersion));
+    }
+
+    private void OnPathComplete(
+        Path path,
+        Vector3 destinationSnapshot,
+        int requestVersion)
+    {
+        if (requestVersion != pathRequestVersion)
+            return;
+
+        pathPending = false;
+
+        if (!hasDestination)
+            return;
+
+        float thresholdSqr =
+            destinationUpdateThreshold *
+            destinationUpdateThreshold;
+
+        if ((requestedDestination - destinationSnapshot).sqrMagnitude >=
+            thresholdSqr)
+        {
+            RequestPath();
+            return;
+        }
+
+        if (path == null || path.error)
+        {
+            currentPath = null;
+            hasDestination = false;
+            HasReachedDestination = true;
+
+            StopMovementSound();
+            return;
+        }
+
+        currentPath = path;
+        currentWaypoint = 0;
+
+        stuckTimer = 0f;
+        lastPosition = transform.position;
+    }
+
+    // Вызывается только EnemyPositionManager.
+    public void SetAssignedSlot(Vector3 slotPosition)
+    {
+        MoveTo(slotPosition);
     }
 
     private void ExecuteMovement()
     {
-        if (currentPath.vectorPath == null || currentWaypoint >= currentPath.vectorPath.Count)
+        if (currentPath == null ||
+            currentPath.vectorPath == null ||
+            currentWaypoint >= currentPath.vectorPath.Count)
         {
             FinishMovement();
             return;
         }
 
-        Vector3 waypoint = currentPath.vectorPath[currentWaypoint];
+        float distanceToDestination = Vector2.Distance(
+            new Vector2(transform.position.x, transform.position.y),
+            new Vector2(currentDestination.x, transform.position.y));
+
+        if (distanceToDestination <= waypointReachDistance)
+        {
+            FinishMovement();
+            return;
+        }
+
+        Vector3 waypoint =
+            currentPath.vectorPath[currentWaypoint];
+
+        waypoint.y = transform.position.y;
+        waypoint.z = transform.position.z;
+
         Vector3 direction = waypoint - transform.position;
         direction.z = 0f;
 
-        float distanceToWaypoint = direction.sqrMagnitude;
-
-        if (distanceToWaypoint <= waypointDistance * waypointDistance)
+        if (direction.sqrMagnitude <=
+            waypointReachDistance * waypointReachDistance)
         {
             currentWaypoint++;
-            lastDistanceToWaypoint = float.MaxValue;
             stuckTimer = 0f;
             return;
         }
 
-        if (Mathf.Abs(distanceToWaypoint - lastDistanceToWaypoint) < 0.001f)
+        direction.Normalize();
+
+        float moveDirectionX = direction.x;
+
+        if (Mathf.Abs(moveDirectionX) > 0.001f)
+        {
+            RaycastHit2D hit = Physics2D.Raycast(
+                transform.position,
+                new Vector2(Mathf.Sign(moveDirectionX), 0f),
+                wallCheckDistance,
+                obstacleLayer);
+
+            if (hit.collider != null)
+                moveDirectionX = 0f;
+        }
+
+        if ((transform.position - lastPosition).sqrMagnitude < 0.0001f)
         {
             stuckTimer += Time.deltaTime;
-            if (stuckTimer >= StuckCheckThreshold)
+
+            if (stuckTimer >= stuckTimeout)
             {
-                Stop();
+                currentPath = null;
+                hasDestination = false;
+                HasReachedDestination = true;
+
+                StopMovementSound();
                 return;
             }
         }
         else
         {
             stuckTimer = 0f;
-            lastDistanceToWaypoint = distanceToWaypoint;
+            lastPosition = transform.position;
         }
 
-        direction.Normalize();
-
-        // Считаем сепарацию
-        Vector3 separation = CalculateSeparation();
-
-        // Итоговый вектор движения (путь + мягкое отталкивание)
-        Vector3 finalDirection = (direction + separation * separationWeight);
-        finalDirection.z = 0f;
-        finalDirection.Normalize();
+        float targetVelocityX = moveDirectionX * actualSpeed;
 
         if (rb != null)
         {
-            rb.velocity = new Vector2(finalDirection.x * moveSpeed, rb.velocity.y);
+            float smoothedX = Mathf.MoveTowards(
+                rb.velocity.x,
+                targetVelocityX,
+                actualSpeed * 15f * Time.deltaTime);
+
+            rb.velocity = new Vector2(
+                smoothedX,
+                rb.velocity.y);
         }
         else
         {
-            transform.position += finalDirection * moveSpeed * Time.deltaTime;
+            transform.position +=
+                new Vector3(moveDirectionX, 0f, 0f) *
+                actualSpeed *
+                Time.deltaTime;
         }
-
-        // ГЛАВНОЕ ИЗМЕНЕНИЕ: flipX ориентируем по основному пути (direction), 
-        // а не по итоговому вектору с сепарацией. Это уберет мерцание спрайта!
-        if (spriteRenderer != null && Mathf.Abs(direction.x) > 0.05f)
-        {
-            spriteRenderer.flipX = direction.x < 0f;
-        }
-
-        if (enemy != null) enemy.AnimationSetBool("isRun", true);
     }
 
-    // Метод для расчета отталкивания от соседних врагов
-    private Vector3 CalculateSeparation()
+    private void UpdateRunAnimation()
     {
-        Vector3 separationDir = Vector3.zero;
+        if (enemy == null)
+            return;
 
-        // Ищем всех врагов в радиусе separationRadius (используем коллайдеры)
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(transform.position, separationRadius);
-        int count = 0;
+        float horizontalSpeed =
+            rb != null ? Mathf.Abs(rb.velocity.x) : 0f;
 
-        foreach (var col in colliders)
+        if (!isRunAnimationPlaying &&
+            horizontalSpeed >= runAnimationStartSpeed)
         {
-            // Проверяем, что это другой враг (не мы сами и тот же слой)
-            if (col.gameObject != gameObject && col.gameObject.layer == gameObject.layer)
-            {
-                Vector3 toOther = transform.position - col.transform.position;
-                float dist = toOther.magnitude;
-
-                if (dist < separationRadius && dist > 0.0001f)
-                {
-                    // Чем ближе враг, тем сильнее он отталкивает
-                    separationDir += toOther.normalized / dist;
-                    count++;
-                }
-            }
+            isRunAnimationPlaying = true;
+            enemy.AnimationSetBool("isRun", true);
         }
-
-        if (count > 0)
+        else if (isRunAnimationPlaying &&
+                 horizontalSpeed <= runAnimationStopSpeed)
         {
-            separationDir /= count;
-            separationDir.z = 0f;
+            isRunAnimationPlaying = false;
+            enemy.AnimationSetBool("isRun", false);
         }
+    }
 
-        return separationDir;
+    private bool IsMovingHorizontally()
+    {
+        return rb != null &&
+               Mathf.Abs(rb.velocity.x) >= runAnimationStartSpeed;
     }
 
     public void Stop()
     {
+        pathRequestVersion++;
+
         hasDestination = false;
         pathPending = false;
+
         currentPath = null;
         currentWaypoint = 0;
+
         HasReachedDestination = true;
         stuckTimer = 0f;
 
-        if (enemy != null) enemy.AnimationSetBool("isRun", false);
+        StopMovementSound();
 
         if (rb != null)
-        {
             rb.velocity = new Vector2(0f, rb.velocity.y);
-        }
     }
 
     private void FinishMovement()
     {
-        HasReachedDestination = true;
-        if (rb != null)
-        {
-            rb.velocity = new Vector2(0f, rb.velocity.y);
-        }
+        hasDestination = false;
+        currentPath = null;
+        currentWaypoint = 0;
 
-        if (enemy != null) enemy.AnimationSetBool("isRun", false);
+        HasReachedDestination = true;
+
+        StopMovementSound();
+
+        if (rb != null)
+            rb.velocity = new Vector2(0f, rb.velocity.y);
     }
 
-    private void OnPathComplete(Path path)
+    private void StopMovementSound()
     {
-        pathPending = false;
-        if (path.error)
+        stuckTimer = 0f;
+
+        if (isRunAnimationPlaying)
         {
-            currentPath = null;
-            HasReachedDestination = true;
+            isRunAnimationPlaying = false;
+
+            if (enemy != null)
+                enemy.AnimationSetBool("isRun", false);
+        }
+
+        if (isWalkingSoundPlaying)
+        {
+            isWalkingSoundPlaying = false;
+
+            if (sound != null)
+                sound.StopWalk();
+        }
+    }
+
+    // Управление поворотом теперь принадлежит менеджеру.
+    public void FaceTarget(Vector3 targetPosition)
+    {
+        if (spriteRenderer == null)
+            return;
+
+        float directionX =
+            targetPosition.x - transform.position.x;
+
+        FaceDirection(directionX);
+    }
+
+    public void FaceDirection(float directionX)
+    {
+        if (spriteRenderer == null ||
+            Mathf.Abs(directionX) <= 0.05f)
+        {
             return;
         }
 
-        currentPath = path;
-        currentWaypoint = 0;
-        lastDistanceToWaypoint = float.MaxValue;
-        stuckTimer = 0f;
-    }
-
-    public void FaceTarget(Vector3 targetPos)
-    {
-        if (spriteRenderer == null) return;
-        float directionX = targetPos.x - transform.position.x;
-        if (Mathf.Abs(directionX) > 0.05f)
-        {
-            spriteRenderer.flipX = directionX < 0f;
-        }
-    }
-
-    public Vector3 FindRetreatPoint()
-    {
-        Enemy enemyComponent = GetComponent<Enemy>();
-        if (enemyComponent == null || AstarPath.active == null) return transform.position;
-
-        Vector3 playerPosition = enemyComponent.PlayerPosition;
-        float desiredDistance = (enemyComponent.AttackDistance + enemyComponent.RetreatDistance) / 2f;
-        Vector3 retreatDirection = (transform.position - playerPosition);
-        retreatDirection.z = 0f;
-        if (retreatDirection.sqrMagnitude < 0.001f) retreatDirection = Vector3.right;
-        retreatDirection.Normalize();
-
-        Vector3 desiredPosition = playerPosition + retreatDirection * desiredDistance;
-        NNInfo nodeInfo = AstarPath.active.GetNearest(transform.position, NNConstraint.Default);
-        if (nodeInfo.node == null) return transform.position;
-
-        uint enemyArea = nodeInfo.node.Area;
-        Vector3 bestPoint = transform.position;
-        float bestScore = float.MaxValue;
-
-        TryRetreatCandidate(desiredPosition, enemyArea, ref bestPoint, ref bestScore);
-
-        for (int i = 0; i < retreatCandidates; i++)
-        {
-            float angle = 360f / retreatCandidates * i;
-            Vector3 dir = Quaternion.Euler(0f, 0f, angle) * retreatDirection;
-            TryRetreatCandidate(desiredPosition + dir * retreatSearchRadius, enemyArea, ref bestPoint, ref bestScore);
-        }
-
-        return bestPoint;
-    }
-
-    private void TryRetreatCandidate(Vector3 candidatePosition, uint enemyArea, ref Vector3 bestPoint, ref float bestScore)
-    {
-        NNInfo nodeInfo = AstarPath.active.GetNearest(candidatePosition, NNConstraint.Default);
-        if (nodeInfo.node == null || !nodeInfo.node.Walkable || nodeInfo.node.Area != enemyArea) return;
-
-        Vector3 point = (Vector3)nodeInfo.position;
-        float score = Vector3.SqrMagnitude(point - candidatePosition);
-        if (score < bestScore)
-        {
-            bestScore = score;
-            bestPoint = point;
-        }
+        spriteRenderer.flipX = directionX < 0f;
     }
 }

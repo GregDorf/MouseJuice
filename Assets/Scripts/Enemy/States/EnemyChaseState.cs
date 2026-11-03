@@ -3,65 +3,54 @@ using UnityEngine;
 public class EnemyChaseState : IEnemyState
 {
     private readonly Enemy enemy;
-    private Vector3 lastTargetPosition;
-    private bool isSearchingLastPosition = false;
-    private const float RebuildPathThreshold = 0.5f; // Уменьшено для более точного преследования
 
-    public EnemyChaseState(Enemy enemy) => this.enemy = enemy;
+    public bool SearchingLastPosition { get; private set; }
+
+    public EnemyChaseState(Enemy enemy)
+    {
+        this.enemy = enemy;
+    }
 
     public void Enter()
     {
-        isSearchingLastPosition = false;
-        if (enemy.PlayerDetected)
-        {
-            lastTargetPosition = enemy.PlayerPosition;
-            enemy.movement.MoveTo(lastTargetPosition);
-        }
+        SearchingLastPosition = false;
     }
 
     public void Update()
     {
         if (enemy.PlayerDetected)
         {
-            isSearchingLastPosition = false;
+            SearchingLastPosition = false;
+
             float distance = enemy.DistanceToPlayer;
 
-            // Строгая проверка дистанций для мгновенного переключения состояний
             if (distance <= enemy.RetreatDistance)
             {
                 enemy.ChangeState(enemy.RetreatState);
                 return;
             }
-            else if (distance <= enemy.AttackDistance)
+
+            if (distance <= enemy.AttackDistance)
             {
-                enemy.ChangeState(enemy.ShootState);
+                EnemyPositionManager manager =
+                    EnemyPositionManager.Instance;
+
+                if (manager == null ||
+                    manager.CanEnterShoot(enemy))
+                {
+                    enemy.ChangeState(enemy.ShootState);
+                }
+
                 return;
             }
 
-            // Движение к игроку
-            bool hasReached = enemy.movement.HasReachedDestination;
-            bool playerMoved = Vector3.SqrMagnitude(enemy.PlayerPosition - lastTargetPosition) > RebuildPathThreshold * RebuildPathThreshold;
-
-            if (hasReached || playerMoved)
-            {
-                lastTargetPosition = enemy.PlayerPosition;
-                enemy.movement.MoveTo(lastTargetPosition);
-            }
+            return;
         }
-        else
-        {
-            if (!isSearchingLastPosition)
-            {
-                isSearchingLastPosition = true;
-                lastTargetPosition = enemy.PlayerPosition;
-                enemy.movement.MoveTo(lastTargetPosition);
-            }
 
-            if (enemy.movement.HasReachedDestination)
-            {
-                enemy.ChangeState(enemy.ReturnState);
-            }
-        }
+        SearchingLastPosition = true;
+
+        if (enemy.movement.HasReachedDestination)
+            enemy.ChangeState(enemy.ReturnState);
     }
 
     public void Exit() { }

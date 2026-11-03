@@ -9,12 +9,12 @@ public class EnemyHP : MonoBehaviour
     [SerializeField] private int currentHealth;
     [SerializeField] private int currentArmor;
 
-    private Enemy enemy;
     [SerializeField] private GameObject enemyCorpse;
 
+    private Enemy enemy;
     private EnemySound sound;
 
-    private bool isDead = false;
+    private bool isDead;
     public bool IsDead => isDead;
 
     private void Awake()
@@ -24,55 +24,51 @@ public class EnemyHP : MonoBehaviour
 
         enemy = GetComponent<Enemy>();
         sound = GetComponent<EnemySound>();
+
+        if (sound == null)
+            sound = GetComponentInChildren<EnemySound>();
     }
 
     public void TakeDamage(int damage)
     {
-        if (isDead) return;
+        if (isDead || damage <= 0)
+            return;
 
         if (currentArmor > 0)
         {
-            if (currentArmor >= damage)
-            {
-                currentArmor -= damage;
-                damage = 0;
-            }
-            else
-            {
-                damage -= currentArmor;
-                currentArmor = 0;
-            }
+            int absorbed = Mathf.Min(currentArmor, damage);
+            currentArmor -= absorbed;
+            damage -= absorbed;
         }
 
         if (damage > 0)
         {
-            currentHealth -= damage;
-            currentHealth = Mathf.Max(0, currentHealth);
+            currentHealth = Mathf.Max(0, currentHealth - damage);
 
-            // Проигрываем звук получения урона при любом нанесении урона
             if (sound != null)
-            {
                 sound.PlayHit();
-            }
         }
 
         if (currentHealth <= 0)
-        {
             Die();
-        }
     }
 
     public void RegisterPlayerHit(bool isCharged, int baseDamage, int chargedBonusDamage)
     {
-        if (isDead) return;
+        if (isDead)
+            return;
 
         int totalDamage = baseDamage;
 
         if (isCharged)
         {
             totalDamage += chargedBonusDamage;
-            enemy.AnimationSetTrig("Push", 0.5f);
-            sound.PlayPush();
+
+            if (enemy != null)
+                enemy.AnimationSetTrig("Push", 0.5f);
+
+            if (sound != null)
+                sound.PlayPush();
         }
 
         TakeDamage(totalDamage);
@@ -80,19 +76,27 @@ public class EnemyHP : MonoBehaviour
 
     private void Die()
     {
-        if (isDead) return;
+        if (isDead)
+            return;
+
         isDead = true;
 
         if (enemy != null)
         {
             enemy.AnimationSetTrig("Death", 5f);
-            sound.PlayDeath();
+
+            if (sound != null)
+                sound.PlayDeath();
+
             enemy.enabled = false;
-            if (enemy.movement != null) enemy.movement.Stop();
+
+            if (enemy.movement != null)
+                enemy.movement.Stop();
         }
 
-        Collider2D col = GetComponent<Collider2D>();
-        if (col != null) col.enabled = false;
+        Collider2D[] colliders = GetComponentsInChildren<Collider2D>();
+        foreach (Collider2D col in colliders)
+            col.enabled = false;
 
         StartCoroutine(DeathRoutine());
     }
@@ -103,15 +107,16 @@ public class EnemyHP : MonoBehaviour
 
         if (enemyCorpse != null)
         {
-            GameObject corpse = Instantiate(enemyCorpse, transform.position, transform.rotation);
+            GameObject corpse = Instantiate(
+                enemyCorpse,
+                transform.position,
+                transform.rotation);
 
-            SpriteRenderer enemySprite = GetComponentInChildren<SpriteRenderer>();
+            SpriteRenderer sourceSprite = GetComponentInChildren<SpriteRenderer>();
             SpriteRenderer corpseSprite = corpse.GetComponentInChildren<SpriteRenderer>();
 
-            if (enemySprite != null && corpseSprite != null)
-            {
-                corpseSprite.flipX = enemySprite.flipX;
-            }
+            if (sourceSprite != null && corpseSprite != null)
+                corpseSprite.flipX = sourceSprite.flipX;
         }
 
         Destroy(gameObject);
